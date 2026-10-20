@@ -215,9 +215,96 @@ class _CodeEditor extends State<CodeEditor> {
   bool nextEnabled = true;
   late GlobalKey key = GlobalKey();
 
+  //////////////////////////////////////////////////////////////////////////////
+  // File text color
+  //
+  // The file editor owns this preference. Passing the color to the existing
+  // editor keeps unsaved text and the cursor intact while the color changes.
+  // Logs and diffs keep their diagnostic colors.
+  //////////////////////////////////////////////////////////////////////////////
+  Color? textColor;
+  bool textColorLoaded = false;
+
+  Future<void> _loadTextColor() async {
+    final saved = await repoManager.getString(StorageKey.repoman_editorTextColor);
+    if (!mounted) return;
+    setState(() {
+      textColor = RegExp(r'^[0-9A-Fa-f]{6}$').hasMatch(saved) ? Color(0xFF000000 | int.parse(saved, radix: 16)) : null;
+      textColorLoaded = true;
+    });
+  }
+
+  Future<void> _changeTextColor() async {
+    var input = textColor?.toARGB32().toRadixString(16).substring(2).toUpperCase() ?? '';
+    String? error;
+    final selected = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, updateDialog) => AlertDialog(
+          title: const Text('Editor text color'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Choose one color for all file text. Use default to restore syntax colors.'),
+                const SizedBox(height: 16),
+                TextFormField(
+                  initialValue: input,
+                  autofocus: true,
+                  autocorrect: false,
+                  decoration: InputDecoration(labelText: 'Hex color', hintText: '#E6E6E6', errorText: error),
+                  onChanged: (value) => updateDialog(() {
+                    input = value;
+                    error = null;
+                  }),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  color: colours.primaryDark,
+                  child: Text(
+                    'Preview: The quick brown fox 0123456789',
+                    style: TextStyle(
+                      color: RegExp(r'^#?[0-9A-Fa-f]{6}$').hasMatch(input.trim())
+                          ? Color(0xFF000000 | int.parse(input.trim().replaceFirst('#', ''), radix: 16))
+                          : colours.primaryLight,
+                      fontFamily: 'RobotoMono',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, ''), child: const Text('Use default')),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () {
+                final value = input.trim();
+                if (!RegExp(r'^#?[0-9A-Fa-f]{6}$').hasMatch(value)) {
+                  updateDialog(() => error = 'Enter six hex digits, for example #E6E6E6.');
+                  return;
+                }
+                Navigator.pop(context, value.replaceFirst('#', '').toUpperCase());
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null) return;
+    await repoManager.setString(StorageKey.repoman_editorTextColor, selected);
+    if (!mounted) return;
+    setState(() => textColor = selected.isEmpty ? null : Color(0xFF000000 | int.parse(selected, radix: 16)));
+  }
+
   @override
   void initState() {
     super.initState();
+    if (widget.type == EditorType.DEFAULT) _loadTextColor();
   }
 
   @override
@@ -234,6 +321,14 @@ class _CodeEditor extends State<CodeEditor> {
           statusBarIconBrightness: Brightness.light,
           systemNavigationBarIconBrightness: Brightness.light,
         ),
+        actions: [
+          if (widget.type == EditorType.DEFAULT)
+            IconButton(
+              tooltip: 'Editor text color',
+              onPressed: textColorLoaded ? _changeTextColor : null,
+              icon: Icon(Icons.format_color_text, color: colours.primaryLight),
+            ),
+        ],
         leading: getBackButton(context, () => (Navigator.of(context).canPop() ? Navigator.pop(context) : null)),
         title: SizedBox(
           width: double.infinity,
@@ -339,7 +434,7 @@ class _CodeEditor extends State<CodeEditor> {
               ),
             ),
           Expanded(
-            child: Editor(key: key, path: widget.paths[index], type: widget.type),
+            child: Editor(key: key, path: widget.paths[index], type: widget.type, textColor: textColor),
           ),
         ],
       ),
@@ -348,12 +443,13 @@ class _CodeEditor extends State<CodeEditor> {
 }
 
 class Editor extends ConsumerStatefulWidget {
-  const Editor({super.key, this.verticalScrollController, this.text, this.path, this.type = EditorType.DEFAULT});
+  const Editor({super.key, this.verticalScrollController, this.text, this.path, this.type = EditorType.DEFAULT, this.textColor});
 
   final String? text;
   final String? path;
   final EditorType type;
   final ScrollController? verticalScrollController;
+  final Color? textColor;
 
   @override
   ConsumerState<Editor> createState() => _EditorState();
@@ -625,13 +721,13 @@ class _EditorState extends ConsumerState<Editor> with WidgetsBindingObserver, Si
                   },
                   chunkAnalyzer: widget.type == EditorType.LOGS ? LogsChunkAnalyzer() : ReEditor.DefaultCodeChunkAnalyzer(),
                   style: ReEditor.CodeEditorStyle(
-                    textColor: colours.tertiaryLight,
+                    textColor: widget.type == EditorType.DEFAULT ? widget.textColor ?? colours.tertiaryLight : colours.tertiaryLight,
                     fontSize: textMD,
                     fontFamily: "RobotoMono",
                     codeTheme: ReEditor.CodeHighlightTheme(
-                      languages: languages,
+                      languages: widget.type == EditorType.DEFAULT && widget.textColor != null ? {} : languages,
                       theme: {
-                        'root': TextStyle(color: colours.primaryLight),
+                        'root': TextStyle(color: widget.type == EditorType.DEFAULT ? widget.textColor ?? colours.primaryLight : colours.primaryLight),
                         'comment': TextStyle(color: colours.secondaryLight),
                         'quote': TextStyle(color: colours.tertiaryInfo),
                         'variable': TextStyle(color: colours.secondaryWarning),

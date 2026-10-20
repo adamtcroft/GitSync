@@ -26,6 +26,7 @@ enum StorageKey<T> {
   repoman_defaultAuthorEmail<String>(name: "defaultAuthorEmail", defaultValue: ""),
   repoman_defaultPostFooter<String>(name: "defaultPostFooter", defaultValue: defaultPostFooter),
   repoman_defaultRemote<String>(name: "defaultRemote", defaultValue: "origin"),
+  repoman_editorTextColor<String>(name: "editorTextColor", defaultValue: ""),
   repoman_editorLineWrap<bool>(name: "editorLineWrap", defaultValue: true),
   repoman_showEditorExperimentalNotice<bool>(name: "showEditorExperimentalNotice", defaultValue: true),
   repoman_aiProvider<String?>(name: "aiProvider", defaultValue: null),
